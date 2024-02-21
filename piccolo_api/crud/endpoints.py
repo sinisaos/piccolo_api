@@ -282,9 +282,9 @@ class PiccoloCRUD(Router):
             Route(
                 path="/{row_id:str}/",
                 endpoint=self.detail,
-                methods=["GET"]
-                if read_only
-                else ["GET", "PUT", "DELETE", "PATCH"],
+                methods=(
+                    ["GET"] if read_only else ["GET", "PUT", "DELETE", "PATCH"]
+                ),
             ),
         ]
 
@@ -493,7 +493,7 @@ class PiccoloCRUD(Router):
             return Response(str(exception), status_code=400)
 
         try:
-            query = self._apply_filters(self.table.count(), split_params)
+            query = await self._apply_filters(self.table.count(), split_params)
         except MalformedQuery as exception:
             return Response(str(exception), status_code=400)
 
@@ -704,7 +704,7 @@ class PiccoloCRUD(Router):
 
         return response
 
-    def _apply_filters(
+    async def _apply_filters(
         self, query: t.Union[Select, Count, Objects, Delete], params: Params
     ) -> t.Union[Select, Count, Objects, Delete]:
         """
@@ -717,8 +717,38 @@ class PiccoloCRUD(Router):
         fields = params.fields
         if fields:
             model_dict = self.pydantic_model_optional(**fields).model_dump()
+            target_foreign_key_columns = {
+                i: i._meta.name
+                for i in self.table._meta.foreign_key_columns
+                if i._foreign_key_meta.target_column is not None
+            }
             for field_name in fields.keys():
-                value = model_dict.get(field_name, ...)
+                for key, val in target_foreign_key_columns.items():
+                    if field_name == val:
+                        print(field_name)
+                        target_column_fk_name: t.Any = [
+                            c._meta.params.get("target_column")
+                            for c in key._foreign_key_meta.resolved_references._meta._foreign_key_references  # noqa: E501
+                            if c._meta.params.get("target_column") is not None
+                        ][0]
+                        reference_table = (
+                            key._foreign_key_meta.resolved_references
+                        )
+                        target_column_query: t.Any = (
+                            await reference_table.select()
+                            .where(
+                                reference_table._meta.primary_key
+                                == int(fields[field_name])
+                            )
+                            .first()
+                        )
+                        value = target_column_query[
+                            target_column_fk_name._meta.name
+                        ]
+                        break
+                else:
+                    value = model_dict.get(field_name, ...)
+
                 if value is ...:
                     raise MalformedQuery(
                         f"{field_name} isn't a valid field name."
@@ -802,7 +832,7 @@ class PiccoloCRUD(Router):
         )
 
         # Build select query, and exclude secrets
-        query = self.table.select(
+        query: t.Any = self.table.select(
             *visible_fields,
             *readable_columns,
             exclude_secrets=self.exclude_secrets,
@@ -814,7 +844,9 @@ class PiccoloCRUD(Router):
 
         # Apply filters
         try:
-            query = t.cast(Select, self._apply_filters(query, split_params))
+            query = await t.cast(
+                Select, self._apply_filters(query, split_params)
+            )
         except MalformedQuery as exception:
             return Response(str(exception), status_code=400)
 
@@ -943,7 +975,7 @@ class PiccoloCRUD(Router):
             return Response(str(exception), status_code=400)
 
         try:
-            query = self._apply_filters(
+            query = await self._apply_filters(
                 self.table.delete(force=True), split_params
             )
         except MalformedQuery as exception:
@@ -994,7 +1026,16 @@ class PiccoloCRUD(Router):
         try:
             row_id = self.table._meta.primary_key.value_type(row_id)
         except ValueError:
-            return Response("The ID is invalid", status_code=400)
+            for i in self.table._meta._foreign_key_references:
+                target = i._meta.params.get("target_column")
+                if target is not None:
+                    reference_target_pk: t.Any = (
+                        await self.table.select(self.table._meta.primary_key)
+                        .where(target == row_id)
+                        .first()
+                        .run()
+                    )
+                    row_id = reference_target_pk[self.table._meta.primary_key]
 
         if (
             not await self.table.exists()
