@@ -9,7 +9,13 @@ from dataclasses import dataclass, field
 import pydantic
 from piccolo.apps.user.tables import BaseUser
 from piccolo.columns import Column, Where
-from piccolo.columns.column_types import Array, ForeignKey, Text, Varchar
+from piccolo.columns.column_types import (
+    Array,
+    ForeignKey,
+    Serial,
+    Text,
+    Varchar,
+)
 from piccolo.columns.operators import (
     Equal,
     GreaterEqualThan,
@@ -282,9 +288,9 @@ class PiccoloCRUD(Router):
             Route(
                 path="/{row_id:str}/",
                 endpoint=self.detail,
-                methods=["GET"]
-                if read_only
-                else ["GET", "PUT", "DELETE", "PATCH"],
+                methods=(
+                    ["GET"] if read_only else ["GET", "PUT", "DELETE", "PATCH"]
+                ),
             ),
         ]
 
@@ -300,7 +306,13 @@ class PiccoloCRUD(Router):
         return create_pydantic_model(
             self.table,
             model_name=f"{self.table.__name__}In",
-            exclude_columns=(self.table._meta.primary_key,),
+            exclude_columns=(
+                (self.table._meta.primary_key,)
+                if isinstance(
+                    self.table._meta.primary_key, (uuid.UUID, Serial)
+                )
+                else ()
+            ),
             json_schema_extra={"extra": self.schema_extra},
         )
 
@@ -1166,6 +1178,16 @@ class PiccoloCRUD(Router):
                 values.pop("password")
 
             await cls.update(values).where(cls.email == values["email"]).run()
+            return Response(status_code=200)
+        if not isinstance(cls._meta.primary_key, (Serial, uuid.UUID)):
+            values = {
+                getattr(cls, key): getattr(model, key)
+                for key in cleaned_data.keys()
+            }
+
+            await cls.update(values).where(
+                cls._meta.primary_key == row_id
+            ).run()
             return Response(status_code=200)
         else:
             try:
