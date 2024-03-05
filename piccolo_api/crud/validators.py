@@ -55,7 +55,8 @@ class Validators:
         delete_single: t.List[ValidatorFunction] = [],
         post_single: t.List[ValidatorFunction] = [],
         get_all: t.List[ValidatorFunction] = [],
-        delete_all: t.List[ValidatorFunction] = [],
+        delete_bulk: t.List[ValidatorFunction] = [],
+        patch_bulk: t.List[ValidatorFunction] = [],
         get_references: t.List[ValidatorFunction] = [],
         get_ids: t.List[ValidatorFunction] = [],
         get_new: t.List[ValidatorFunction] = [],
@@ -70,7 +71,8 @@ class Validators:
         self.delete_single = delete_single
         self.post_single = post_single
         self.get_all = get_all
-        self.delete_all = delete_all
+        self.delete_bulk = delete_bulk
+        self.patch_bulk = patch_bulk
         self.get_references = get_references
         self.get_ids = get_ids
         self.get_new = get_new

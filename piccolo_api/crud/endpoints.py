@@ -112,6 +112,7 @@ class Params:
         default_factory=lambda: defaultdict(lambda: MATCH_TYPES[0])
     )
     fields: t.Dict[str, t.Any] = field(default_factory=dict)
+    pks: str = field(default="")
     order_by: t.Optional[t.List[OrderBy]] = None
     include_readable: bool = False
     page: int = 1
@@ -176,6 +177,7 @@ class PiccoloCRUD(Router):
         table: t.Type[Table],
         read_only: bool = True,
         allow_bulk_delete: bool = False,
+        allow_bulk_update: bool = False,
         page_size: int = 15,
         exclude_secrets: bool = True,
         validators: t.Optional[Validators] = None,
@@ -188,9 +190,11 @@ class PiccoloCRUD(Router):
             The Piccolo ``Table`` to expose CRUD methods for.
         :param read_only:
             If ``True``, only the GET method is allowed.
-        :param allow_bulk_delete:
-            If ``True``, allows a delete request to the root to delete all
-            matching records. It is dangerous, so is disabled by default.
+        If ``True``, allows a delete request to the root and delete all
+            matching records with values in ``__pks`` query params.
+        :param allow_bulk_update:
+            If ``True``, allows a update request to the root and update all
+            matching records with values in ``__pks`` query params.
         :param page_size:
             The number of results shown on each page by default.
         :param exclude_secrets:
@@ -241,6 +245,7 @@ class PiccoloCRUD(Router):
         self.page_size = page_size
         self.read_only = read_only
         self.allow_bulk_delete = allow_bulk_delete
+        self.allow_bulk_update = allow_bulk_update
         self.exclude_secrets = exclude_secrets
         self.validators = validators
         self.max_joins = max_joins
@@ -264,9 +269,11 @@ class PiccoloCRUD(Router):
 
         root_methods = ["GET"]
         if not read_only:
-            root_methods += (
-                ["POST", "DELETE"] if allow_bulk_delete else ["POST"]
-            )
+            root_methods.append("POST")
+            if allow_bulk_delete:
+                root_methods.append("DELETE")
+            if allow_bulk_update:
+                root_methods.append("PATCH")
 
         routes: t.List[BaseRoute] = [
             Route(path="/", endpoint=self.root, methods=root_methods),
@@ -282,9 +289,9 @@ class PiccoloCRUD(Router):
             Route(
                 path="/{row_id:str}/",
                 endpoint=self.detail,
-                methods=["GET"]
-                if read_only
-                else ["GET", "PUT", "DELETE", "PATCH"],
+                methods=(
+                    ["GET"] if read_only else ["GET", "PUT", "DELETE", "PATCH"]
+                ),
             ),
         ]
 
@@ -544,6 +551,7 @@ class PiccoloCRUD(Router):
         return output
 
     async def root(self, request: Request) -> Response:
+        rows_pks = request.query_params.get("__pks", None)
         if request.method == "GET":
             params = self._parse_params(request.query_params)
             return await self.get_all(request, params=params)
@@ -552,7 +560,10 @@ class PiccoloCRUD(Router):
             return await self.post_single(request, data)
         elif request.method == "DELETE":
             params = dict(request.query_params)
-            return await self.delete_all(request, params=params)
+            return await self.delete_bulk(request, params=params)
+        elif request.method == "PATCH":
+            data = await request.json()
+            return await self.patch_bulk(request, data, rows_pks=rows_pks)
         else:
             return Response(status_code=405)
 
@@ -577,6 +588,9 @@ class PiccoloCRUD(Router):
         {'__page_size': 15}.
 
         And can specify which page: {'__page': 2}.
+
+        You can specify which records want to delete or update from rows:
+        {'__pks': '1,2,3'}.
 
         You can specify which fields want to display in rows:
         {'__visible_fields': 'id,name'}.
@@ -663,6 +677,10 @@ class PiccoloCRUD(Router):
                     response.page_size = page_size
                 continue
 
+            if key == "__pks":
+                response.pks = value
+                continue
+
             if key == "__visible_fields":
                 column_names: t.List[str]
 
@@ -713,6 +731,10 @@ class PiccoloCRUD(Router):
 
         Works on any queries which support `where` clauses - Select, Count,
         Objects etc.
+
+        :raises MalformedQuery:
+            If the filters reference columns which don't exist.
+
         """
         fields = params.fields
         if fields:
@@ -929,23 +951,70 @@ class PiccoloCRUD(Router):
                 )
 
     @apply_validators
-    async def delete_all(
+    async def patch_bulk(
+        self,
+        request: Request,
+        data: t.Dict[str, t.Any],
+        rows_pks: str,
+    ) -> Response:
+        """
+        Bulk update of rows whose primary keys are in the ``__pks``
+        query param.
+        """
+        cleaned_data = self._clean_data(data)
+
+        try:
+            model = self.pydantic_model_optional(**cleaned_data)
+        except Exception as exception:
+            return Response(str(exception), status_code=400)
+
+        values = {
+            getattr(self.table, key): getattr(model, key)
+            for key in data.keys()
+        }
+
+        # Serial or UUID primary keys enabled in query params
+        value_type = self.table._meta.primary_key.value_type
+        split_rows_pks = rows_pks.split(",")
+        pks = [value_type(item) for item in split_rows_pks]
+
+        await self.table.update(values).where(
+            self.table._meta.primary_key.is_in(pks)
+        ).run()
+        updated_rows = (
+            await self.table.select(
+                exclude_secrets=self.exclude_secrets,
+            )
+            .where(self.table._meta.primary_key.is_in(pks))
+            .run()
+        )
+        json = self.pydantic_model_plural()(rows=updated_rows).json()
+
+        return CustomJSONResponse(json)
+
+    @apply_validators
+    async def delete_bulk(
         self, request: Request, params: t.Optional[t.Dict[str, t.Any]] = None
     ) -> Response:
         """
-        Deletes all rows - query parameters are used for filtering.
+        Bulk deletes rows - query parameters are used for filtering.
         """
         params = self._clean_data(params) if params else {}
+        split_params = self._split_params(params)
+        split_params_pks = split_params.pks.split(",")
 
         try:
-            split_params = self._split_params(params)
-        except ParamException as exception:
-            return Response(str(exception), status_code=400)
-
-        try:
-            query = self._apply_filters(
-                self.table.delete(force=True), split_params
-            )
+            query: t.Any = self.table.delete()
+            try:
+                # Serial or UUID primary keys enabled in query params
+                value_type = self.table._meta.primary_key.value_type
+                pks = [value_type(item) for item in split_params_pks]
+                query_pks = query.where(
+                    self.table._meta.primary_key.is_in(pks)
+                )
+                query = self._apply_filters(query_pks, split_params)
+            except ValueError:
+                query = self._apply_filters(query, split_params)
         except MalformedQuery as exception:
             return Response(str(exception), status_code=400)
 
