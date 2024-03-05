@@ -190,7 +190,8 @@ class PiccoloCRUD(Router):
             The Piccolo ``Table`` to expose CRUD methods for.
         :param read_only:
             If ``True``, only the GET method is allowed.
-        If ``True``, allows a delete request to the root and delete all
+        :param allow_bulk_delete:
+            If ``True``, allows a delete request to the root and delete all
             matching records with values in ``__pks`` query params.
         :param allow_bulk_update:
             If ``True``, allows a update request to the root and update all
@@ -262,9 +263,9 @@ class PiccoloCRUD(Router):
             table=table, exclude_secrets=exclude_secrets, max_joins=max_joins
         )
         schema_extra["visible_fields_options"] = self.visible_fields_options
-        schema_extra[
-            "primary_key_name"
-        ] = self.table._meta.primary_key._meta.name
+        schema_extra["primary_key_name"] = (
+            self.table._meta.primary_key._meta.name
+        )
         self.schema_extra = schema_extra
 
         root_methods = ["GET"]
@@ -882,9 +883,9 @@ class PiccoloCRUD(Router):
             curr_page_len = curr_page_len + offset
             count = await self.table.count().run()
             curr_page_string = f"{offset}-{curr_page_len}"
-            headers[
-                "Content-Range"
-            ] = f"{plural_name} {curr_page_string}/{count}"
+            headers["Content-Range"] = (
+                f"{plural_name} {curr_page_string}/{count}"
+            )
 
         # We need to serialise it ourselves, in case there are datetime
         # fields.
