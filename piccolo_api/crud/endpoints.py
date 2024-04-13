@@ -589,10 +589,12 @@ class PiccoloCRUD(Router):
         output = {}
 
         for key, value in params_map.items():
-            if key.endswith("[]") or key.rstrip("[]") in array_columns:
-                # Is either an array, or multiple values have been passed in
-                # for another field.
-                key = key.rstrip("[]")
+            # remove all [] or [0][1] or [0][1][2] etc. from
+            # endings of keys in array columns.
+            # Used to filter nested lists.
+            key = key.split("[")[0]
+            if key in array_columns:
+                key = key
             elif len(value) == 1:
                 value = value[0]
 
