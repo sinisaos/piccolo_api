@@ -1,6 +1,41 @@
 Changes
 =======
 
+1.5.2
+-----
+
+Fix an import from `pynacl` - it's an optional dependency.
+
+-------------------------------------------------------------------------------
+
+1.5.1
+-----
+
+Fixed optional requirements for MFA - thanks to @sinisaos for reporting this
+issue.
+
+-------------------------------------------------------------------------------
+
+1.5.0
+-----
+
+Added support for Multi Factor Authentication, using an authenticator app.
+
+This will soon be implemented in Piccolo Admin.
+
+Huge thanks to @Skelmis and @sinisaos for their help with this.
+
+-------------------------------------------------------------------------------
+
+1.4.1
+-----
+
+Fix for a breaking change in Pydantic 2.8.0.
+
+Upgraded setuptools.
+
+-------------------------------------------------------------------------------
+
 1.4.0
 -----
 
