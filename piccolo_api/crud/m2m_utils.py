@@ -15,7 +15,7 @@ async def reverse_m2m_lookup(table: type[Table], rows: Any) -> None:
                     table._meta.m2m_relationships[index]._meta._name
                 )
                 secondary_table_object = await primary_table_object[0].get_m2m(
-                    table._meta.m2m_relationships[index]
+                    table._meta.m2m_relationships[index]  # type: ignore
                 )
                 # list of objects
                 row[secondary_table_m2m_column_name] = [
@@ -38,14 +38,14 @@ async def reverse_m2m_lookup_single_row(
             secondary_table_m2m_column_name = table._meta.m2m_relationships[
                 index
             ]._meta._name
-            secondary_table = table._meta.m2m_relationships[
+            secondary_table = table._meta.m2m_relationships[  # type: ignore
                 index
             ]._meta.secondary_table
             secondary_table_readable = (
                 secondary_table.get_readable().columns[0]._meta.name
             )
             secondary_table_object = await primary_table_object[0].get_m2m(
-                table._meta.m2m_relationships[index]
+                table._meta.m2m_relationships[index]  # type: ignore
             )
             row[secondary_table_m2m_column_name] = [
                 i.to_dict()[secondary_table_readable]
@@ -56,7 +56,7 @@ async def reverse_m2m_lookup_single_row(
 
 
 async def create_m2m(
-    table: type[Table],
+    table: type[Table],  # type: ignore
     data: dict[str, Any],
     row: Any,
     cleaned_data: Any,
@@ -67,14 +67,14 @@ async def create_m2m(
         m2m_column_name = [
             i._meta._name for i in table._meta.m2m_relationships
         ][index]
-        secondary_table = table._meta.m2m_relationships[
+        secondary_table = table._meta.m2m_relationships[  # type: ignore
             index
         ]._meta.secondary_table
         secondary_table_readable = secondary_table.get_readable().columns[0]
         # add m2m column result to new object
         row[m2m_column_name] = cleaned_data[m2m_column_name]
         # work out m2m relations in form
-        secondary_table = table._meta.m2m_relationships[
+        secondary_table = table._meta.m2m_relationships[  # type: ignore
             index
         ]._meta.secondary_table
         secondary_table_readable = secondary_table.get_readable().columns[0]
@@ -96,7 +96,7 @@ async def create_m2m(
 
 
 async def update_m2m(
-    table: type[Table],
+    table: type[Table],  # type: ignore
     cleaned_data: Any,
     row_id: Union[str, uuid.UUID, int],
 ) -> Any:
@@ -121,7 +121,7 @@ async def update_m2m(
         # add m2m column result to new object
         new_row[m2m_column_name] = cleaned_data[m2m_column_name]
         # work out m2m relations in form
-        secondary_table = table._meta.m2m_relationships[
+        secondary_table = table._meta.m2m_relationships[  # type: ignore
             index
         ]._meta.secondary_table
         secondary_table_readable = secondary_table.get_readable().columns[0]
@@ -138,6 +138,6 @@ async def update_m2m(
         for item in result:
             await new_primary_object.add_m2m(
                 item,  # type: ignore
-                m2m=table._meta.m2m_relationships[index],
+                m2m=table._meta.m2m_relationships[index],  # type: ignore
             )
     return new_row

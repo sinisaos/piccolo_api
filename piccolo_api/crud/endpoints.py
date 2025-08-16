@@ -559,7 +559,7 @@ class PiccoloCRUD(Router):
         m2m_columns_map = {}
         try:
             for index, item in enumerate(m2m_columns_names):
-                secondary_table = self.table._meta.m2m_relationships[
+                secondary_table = self.table._meta.m2m_relationships[  # type: ignore # noqa: E501
                     index
                 ]._meta.secondary_table
                 secondary_table_select = await secondary_table.select(
@@ -812,8 +812,38 @@ class PiccoloCRUD(Router):
         fields = params.fields
         if fields:
             model_dict = self.pydantic_model_filters(**fields).model_dump()
+            target_foreign_key_columns = {
+                i: i._meta.name
+                for i in self.table._meta.foreign_key_columns
+                if i._foreign_key_meta.target_column is not None
+            }
             for field_name in fields.keys():
-                value = model_dict.get(field_name, ...)
+                for key, val in target_foreign_key_columns.items():
+                    if field_name == val:
+                        target_column_fk_name: Any = [
+                            c._meta.params.get("target_column")
+                            for c in key._foreign_key_meta.resolved_references._meta._foreign_key_references  # noqa: E501
+                            if c._meta.params.get("target_column") is not None
+                        ][0]
+                        reference_table = (
+                            key._foreign_key_meta.resolved_references
+                        )
+                        target_column_query: Any = (
+                            reference_table.select()
+                            .where(
+                                reference_table._meta.primary_key
+                                == int(fields[field_name])
+                            )
+                            .first()
+                            .run_sync()
+                        )
+                        value = target_column_query[
+                            target_column_fk_name._meta.name
+                        ]
+                        break
+                else:
+                    value = model_dict.get(field_name, ...)
+
                 if value is ...:
                     raise MalformedQuery(
                         f"{field_name} isn't a valid field name."
@@ -1115,7 +1145,16 @@ class PiccoloCRUD(Router):
         try:
             row_id = self.table._meta.primary_key.value_type(row_id)
         except ValueError:
-            return Response("The ID is invalid", status_code=400)
+            for i in self.table._meta._foreign_key_references:
+                target = i._meta.params.get("target_column")
+                if target is not None:
+                    reference_target_pk: Any = (
+                        await self.table.select(self.table._meta.primary_key)
+                        .where(target == row_id)
+                        .first()
+                        .run()
+                    )
+                    row_id = reference_target_pk[self.table._meta.primary_key]
 
         if (
             not await self.table.exists()

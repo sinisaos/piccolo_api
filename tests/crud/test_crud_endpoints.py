@@ -7,11 +7,13 @@ from piccolo.columns import (
     Email,
     ForeignKey,
     Integer,
+    LazyTableReference,
     Secret,
     Text,
     Varchar,
 )
 from piccolo.columns.column_types import OnDelete
+from piccolo.columns.m2m import M2M
 from piccolo.columns.readable import Readable
 from piccolo.table import Table, create_db_tables_sync, drop_db_tables_sync
 from starlette.datastructures import QueryParams
@@ -62,6 +64,26 @@ class Cinema(Table):
 
 class Ticket(Table):
     code = Varchar(null=False)
+
+
+# M2M tables
+class Band(Table):
+    name = Varchar()
+    genres = M2M(LazyTableReference("GenreToBand", module_path=__name__))
+
+
+class Genre(Table):
+    name = Varchar()
+
+    @classmethod
+    def get_readable(cls) -> Readable:
+        return Readable(template="%s", columns=[cls.name])
+
+
+# This is our joining table:
+class GenreToBand(Table):
+    band = ForeignKey(Band)
+    genre = ForeignKey(Genre)
 
 
 class TestGetVisibleFieldsOptions(TestCase):
@@ -2079,4 +2101,109 @@ class TestOrderBy(TestCase):
         self.assertDictEqual(
             OrderBy(column=Role.movie.name, ascending=False).to_dict(),
             {"column": "movie.name", "ascending": False},
+        )
+
+
+class TestM2MCrud(TestCase):
+    def setUp(self):
+        BaseUser.create_table(if_not_exists=True).run_sync()
+        Band.create_table(if_not_exists=True).run_sync()
+        Genre.create_table(if_not_exists=True).run_sync()
+        GenreToBand.create_table(if_not_exists=True).run_sync()
+
+        # Genre.insert(
+        #     Genre(name="Rock"),
+        #     Genre(name="Metal"),
+        #     Genre(name="Jazz"),
+        # ).run_sync()
+
+        Band.insert(Band(name="Pythonistas")).run_sync()
+
+        band = Band.objects().get(Band.name == "Pythonistas").run_sync()
+        band.add_m2m(Genre(name="Rock"), m2m=Band.genres).run_sync()
+        band.add_m2m(Genre(name="Metal"), m2m=Band.genres).run_sync()
+
+    def tearDown(self):
+        BaseUser.alter().drop_table().run_sync()
+        GenreToBand.alter().drop_table().run_sync()
+        Genre.alter().drop_table().run_sync()
+        Band.alter().drop_table().run_sync()
+
+    def test_m2m_post(self):
+        """
+        Make sure a post can create M2M rows successfully.
+        """
+        client = TestClient(PiccoloCRUD(table=Band, read_only=False))
+
+        json = {"name": "C-Sharps", "genres": ["Rock", "Metal"]}
+
+        response = client.post("/", json=json)
+        self.assertEqual(response.status_code, 201)
+
+        self.assertEqual(Band.count().run_sync(), 2)
+
+        result = Band.select(
+            Band.name, Band.genres(Genre.name, as_list=True)
+        ).run_sync()
+        self.assertEqual(
+            result,
+            [
+                {"name": "Pythonistas", "genres": ["Rock", "Metal"]},
+                {"name": "C-Sharps", "genres": ["Rock", "Metal"]},
+            ],
+        )
+
+    def test_m2m_get_all(self):
+        """
+        Make sure we can get M2M rows successfully.
+        """
+        client = TestClient(PiccoloCRUD(table=Band, read_only=False))
+
+        response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Band.count().run_sync(), 1)
+        self.assertEqual(
+            response.json(),
+            {
+                "rows": [
+                    {
+                        "id": 1,
+                        "name": "Pythonistas",
+                        "genres": [
+                            {"id": 1, "name": "Rock"},
+                            {"id": 2, "name": "Metal"},
+                        ],
+                    }
+                ]
+            },
+        )
+
+    def test_m2m_patch(self):
+        """
+        Make sure a patch can update M2M rows successfully.
+        """
+        client = TestClient(PiccoloCRUD(table=Band, read_only=False))
+
+        Genre.insert(
+            Genre(name="Pop"),
+            Genre(name="Folk"),
+        ).run_sync()
+
+        json = {"name": "Rustaceans", "genres": ["Pop", "Folk"]}
+
+        band = Band.objects().first().run_sync()
+
+        response = client.patch(f"/{band.id}/", json=json)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Band.count().run_sync(), 1)
+
+        result = Band.select(
+            Band.name, Band.genres(Genre.name, as_list=True)
+        ).run_sync()
+        self.assertEqual(
+            result,
+            [
+                {"name": "Rustaceans", "genres": ["Pop", "Folk"]},
+            ],
         )
