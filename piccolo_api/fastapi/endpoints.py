@@ -248,6 +248,23 @@ class FastAPIWrapper:
         )
 
         #######################################################################
+        # Root - M2M
+
+        async def m2m(request: Request):
+            """
+            Returns the m2m rows matching the given query.
+            """
+            return await piccolo_crud.get_m2m_results(request=request)
+
+        fastapi_app.add_api_route(
+            path=self.join_urls(root_url, "/m2m/"),
+            endpoint=m2m,
+            methods=["GET"],
+            response_model=dict[str, str],
+            **fastapi_kwargs.get_kwargs("get"),
+        )
+
+        #######################################################################
         # Root - DELETE
 
         if not piccolo_crud.read_only and piccolo_crud.allow_bulk_delete:

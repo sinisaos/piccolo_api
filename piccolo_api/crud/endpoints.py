@@ -39,6 +39,12 @@ from piccolo_api.crud.hooks import (
 )
 
 from .exceptions import MalformedQuery, db_exception_handler
+from .m2m_utils import (
+    create_m2m,
+    reverse_m2m_lookup,
+    reverse_m2m_lookup_single_row,
+    update_m2m,
+)
 from .validators import Validators, apply_validators
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -279,6 +285,9 @@ class PiccoloCRUD(Router):
                 methods=["GET"],
             ),
             Route(path="/new/", endpoint=self.get_new, methods=["GET"]),
+            Route(
+                path="/m2m/", endpoint=self.get_m2m_results, methods=["GET"]
+            ),
             Route(
                 path="/{row_id:str}/",
                 endpoint=self.detail,
@@ -534,6 +543,35 @@ class PiccoloCRUD(Router):
             for i in self.table._meta.foreign_key_references
         ]
         return JSONResponse({"references": references})
+
+    ###########################################################################
+
+    @apply_validators
+    async def get_m2m_results(self, request: Request) -> JSONResponse:
+        """
+        Returns a list of m2m readable columns. Used for
+        Piccolo Admin m2m select.
+        """
+        # if we have multiple m2m relations per table
+        m2m_columns_names = [
+            i._meta._name for i in self.table._meta.m2m_relationships
+        ]
+        m2m_columns_map = {}
+        try:
+            for index, item in enumerate(m2m_columns_names):
+                secondary_table = self.table._meta.m2m_relationships[
+                    index
+                ]._meta.secondary_table
+                secondary_table_select = await secondary_table.select(
+                    secondary_table.get_readable()
+                )
+                m2m_columns_map[item] = [
+                    i["readable"] for i in secondary_table_select
+                ]
+            # list of m2m readble columns
+            return JSONResponse({"rows": m2m_columns_map})
+        except IndexError:
+            return JSONResponse({"rows": []})
 
     ###########################################################################
 
@@ -903,6 +941,11 @@ class PiccoloCRUD(Router):
             query = query.offset(offset).limit(page_size)
 
         rows = await query.run()
+
+        # reverse lookup for m2m fields
+        if self.table._meta.m2m_relationships:
+            await reverse_m2m_lookup(self.table, rows)
+
         headers = {}
         if split_params.range_header is True:
             plural_name = (
@@ -968,7 +1011,22 @@ class PiccoloCRUD(Router):
                 return Response(f"Error: {e}", status_code=400)
         else:
             try:
-                row = self.table(**model.model_dump())
+                if self.table._meta.m2m_relationships:
+                    m2m_column_name: Any = [
+                        i._meta._name
+                        for i in self.table._meta.m2m_relationships
+                    ]
+                    m2m_data: Any = [cleaned_data[i] for i in m2m_column_name]
+                    m2m_model = model.model_dump()
+                    # we must remove m2m form data from model because we
+                    # add m2m relation later
+                    for i in m2m_model.copy():
+                        if i in m2m_column_name:
+                            m2m_model.pop(i)
+                    row = self.table(**m2m_model)
+                else:
+                    row = self.table(**model.model_dump())
+
                 if self._hook_map:
                     row = await execute_post_hooks(
                         hooks=self._hook_map,
@@ -976,7 +1034,13 @@ class PiccoloCRUD(Router):
                         row=row,
                         request=request,
                     )
-                response = await row.save().run()
+                response: Any = await row.save().run()
+                response_id = response[0][self.table._meta.primary_key]
+                # work out m2m relations in form
+                if self.table._meta.m2m_relationships:
+                    await create_m2m(
+                        self.table, m2m_data, row, cleaned_data, response_id
+                    )
                 json = dump_json(response)
                 # Returns the id of the inserted row.
                 return CustomJSONResponse(json, status_code=201)
@@ -1152,6 +1216,9 @@ class PiccoloCRUD(Router):
 
         row = await query.run()
 
+        if self.table._meta.m2m_relationships:
+            await reverse_m2m_lookup_single_row(self.table, row, row_id)
+
         if not row:
             return Response(
                 "Unable to find a resource with that ID.", status_code=404
@@ -1241,16 +1308,18 @@ class PiccoloCRUD(Router):
                     return Response(f"{e}", status_code=400)
                 values["password"] = cls.hash_password(password)
         try:
-            await cls.update(values).where(
-                cls._meta.primary_key == row_id
-            ).run()
-            new_row = (
-                await cls.select(exclude_secrets=self.exclude_secrets)
-                .where(cls._meta.primary_key == row_id)
-                .first()
-                .run()
-            )
-            assert new_row
+            if self.table._meta.m2m_relationships:
+                new_row = await update_m2m(self.table, cleaned_data, row_id)
+            else:
+                await cls.update(values).where(
+                    cls._meta.primary_key == row_id
+                ).run()
+                new_row = (
+                    await cls.select(exclude_secrets=self.exclude_secrets)
+                    .where(cls._meta.primary_key == row_id)
+                    .first()
+                    .run()
+                )
             return CustomJSONResponse(
                 self.pydantic_model(**new_row).model_dump_json()
             )
