@@ -228,7 +228,7 @@ class TestResponses(TestCase):
 
     def test_allow_bulk_delete(self):
         client = TestClient(app)
-        response = client.delete("/movies/")
+        response = client.delete("/movies/?__pks=1")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.content, b"")
 

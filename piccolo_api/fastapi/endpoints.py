@@ -26,6 +26,7 @@ ANNOTATIONS: defaultdict = defaultdict(dict)
 class HTTPMethod(str, Enum):
     get = "GET"
     delete = "DELETE"
+    patch = "PATCH"
 
 
 class FastAPIKwargs:
@@ -37,19 +38,21 @@ class FastAPIKwargs:
         self,
         all_routes: dict[str, Any] = {},
         get: dict[str, Any] = {},
-        delete: dict[str, Any] = {},
+        delete_bulk: dict[str, Any] = {},
         post: dict[str, Any] = {},
         put: dict[str, Any] = {},
         patch: dict[str, Any] = {},
+        patch_bulk: dict[str, Any] = {},
         get_single: dict[str, Any] = {},
         delete_single: dict[str, Any] = {},
     ):
         self.all_routes = all_routes
         self.get = get
-        self.delete = delete
+        self.delete_bulk = delete_bulk
         self.post = post
         self.put = put
         self.patch = patch
+        self.patch_bulk = patch_bulk
         self.get_single = get_single
         self.delete_single = delete_single
 
@@ -265,29 +268,54 @@ class FastAPIWrapper:
         )
 
         #######################################################################
-        # Root - DELETE
+        # Root - DELETE BULK
 
         if not piccolo_crud.read_only and piccolo_crud.allow_bulk_delete:
 
-            async def delete(request: Request, **kwargs):
+            async def delete_bulk(request: Request, **kwargs):
                 """
-                Deletes all rows matching the given query.
+                Bulk delete of rows whose primary keys are in the ``__pks``
+                query param.
                 """
                 return await piccolo_crud.root(request=request)
 
             self.modify_signature(
-                endpoint=delete,
+                endpoint=delete_bulk,
                 model=self.ModelFilters,
                 http_method=HTTPMethod.delete,
             )
 
             fastapi_app.add_api_route(
                 path=root_url,
-                endpoint=delete,
+                endpoint=delete_bulk,
                 response_model=None,
                 status_code=status.HTTP_204_NO_CONTENT,
                 methods=["DELETE"],
                 **fastapi_kwargs.get_kwargs("delete"),
+            )
+
+        #######################################################################
+        # Root - PATCH BULK
+
+        if not piccolo_crud.read_only and piccolo_crud.allow_bulk_update:
+
+            async def patch_bulk(request: Request, model):
+                """
+                Bulk update of rows whose primary keys are in the ``__pks``
+                query param.
+                """
+                return await piccolo_crud.root(request=request)
+
+            patch_bulk.__annotations__["model"] = (
+                f"ANNOTATIONS['{self.alias}']['ModelOptional']"
+            )
+
+            fastapi_app.add_api_route(
+                path=root_url,
+                endpoint=patch_bulk,
+                response_model=self.ModelOut,
+                methods=["PATCH"],
+                **fastapi_kwargs.get_kwargs("patch_bulk"),
             )
 
         #######################################################################
@@ -506,6 +534,24 @@ class FastAPIWrapper:
                         ),
                     )
                 )
+
+        if http_method == HTTPMethod.delete or http_method == HTTPMethod.patch:
+            parameters.extend(
+                [
+                    Parameter(
+                        name="__ids",
+                        kind=Parameter.POSITIONAL_OR_KEYWORD,
+                        annotation=str,
+                        default=Query(
+                            default=None,
+                            description=(
+                                "Specifies which rows you want to delete "
+                                "or update in bulk (default ' ')."
+                            ),
+                        ),
+                    ),
+                ]
+            )
 
         if http_method == HTTPMethod.get:
             if allow_ordering:
