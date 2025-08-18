@@ -871,49 +871,47 @@ class PiccoloCRUD(Router):
                             target_column_fk_name._meta.name
                         ]
                         break
-                else:
-                    value = model_dict.get(field_name, ...)
+            else:
+                value = model_dict.get(field_name, ...)
 
-                if value is ...:
-                    raise MalformedQuery(
-                        f"{field_name} isn't a valid field name."
+            if value is ...:
+                raise MalformedQuery(f"{field_name} isn't a valid field name.")
+            column: Column = getattr(self.table, field_name)
+
+            # Sometimes a list of values is passed in.
+            values = value if isinstance(value, list) else [value]
+
+            for value in values:
+                operator = params.operators[field_name]
+                if operator in (IsNull, IsNotNull):
+                    query = query.where(
+                        Where(
+                            column=column,
+                            operator=operator,
+                        )
                     )
-                column: Column = getattr(self.table, field_name)
-
-                # Sometimes a list of values is passed in.
-                values = value if isinstance(value, list) else [value]
-
-                for value in values:
-                    operator = params.operators[field_name]
-                    if operator in (IsNull, IsNotNull):
+                else:
+                    if isinstance(column, (Varchar, Text)):
+                        match_type = params.match_types[field_name]
+                        if match_type == "exact":
+                            clause = column.__eq__(value)
+                        elif match_type == "starts":
+                            clause = column.ilike(f"{value}%")
+                        elif match_type == "ends":
+                            clause = column.ilike(f"%{value}")
+                        else:
+                            clause = column.ilike(f"%{value}%")
+                        query = query.where(clause)
+                    elif isinstance(column, Array):
+                        query = query.where(column.any(value))
+                    else:
                         query = query.where(
                             Where(
                                 column=column,
+                                value=value,
                                 operator=operator,
                             )
                         )
-                    else:
-                        if isinstance(column, (Varchar, Text)):
-                            match_type = params.match_types[field_name]
-                            if match_type == "exact":
-                                clause = column.__eq__(value)
-                            elif match_type == "starts":
-                                clause = column.ilike(f"{value}%")
-                            elif match_type == "ends":
-                                clause = column.ilike(f"%{value}")
-                            else:
-                                clause = column.ilike(f"%{value}%")
-                            query = query.where(clause)
-                        elif isinstance(column, Array):
-                            query = query.where(column.any(value))
-                        else:
-                            query = query.where(
-                                Where(
-                                    column=column,
-                                    value=value,
-                                    operator=operator,
-                                )
-                            )
 
         return query
 

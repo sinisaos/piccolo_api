@@ -41,9 +41,13 @@ class TestTargetPK(TestCase):
         self.assertEqual(response.json()["id"], review["serie.id"])
 
         self.client = TestClient(PiccoloCRUD(table=Review, read_only=False))
-        response = self.client.get(
-            "/", params={"serie": f"{review['serie.id']}"}
+        response = self.client.get(f"/{review['serie.id']}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"id": 1, "reviewer": "John Doe", "serie": "Devs"},
         )
+        response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json(),
