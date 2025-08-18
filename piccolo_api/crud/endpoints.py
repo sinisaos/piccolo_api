@@ -842,76 +842,79 @@ class PiccoloCRUD(Router):
         fields = params.fields
         if fields:
             model_dict = self.pydantic_model_filters(**fields).model_dump()
-            target_foreign_key_columns = {
-                i: i._meta.name
-                for i in self.table._meta.foreign_key_columns
-                if i._foreign_key_meta.target_column is not None
-            }
+            # target_foreign_key_columns = {
+            #     i: i._meta.name
+            #     for i in self.table._meta.foreign_key_columns
+            #     if i._foreign_key_meta.target_column is not None
+            # }
             for field_name in fields.keys():
-                for key, val in target_foreign_key_columns.items():
-                    if field_name == val:
-                        target_column_fk_name: Any = [
-                            c._meta.params.get("target_column")
-                            for c in key._foreign_key_meta.resolved_references._meta._foreign_key_references  # noqa: E501
-                            if c._meta.params.get("target_column") is not None
-                        ][0]
-                        reference_table = (
-                            key._foreign_key_meta.resolved_references
-                        )
-                        target_column_query: Any = (
-                            reference_table.select()
-                            .where(
-                                reference_table._meta.primary_key
-                                == int(fields[field_name])
-                            )
-                            .first()
-                            .run_sync()
-                        )
-                        value = target_column_query[
-                            target_column_fk_name._meta.name
-                        ]
-                        break
-            else:
                 value = model_dict.get(field_name, ...)
+                #     for key, val in target_foreign_key_columns.items():
+                #         if field_name == val:
+                #             target_column_fk_name: Any = [
+                #                 c._meta.params.get("target_column")
+                #                 for c in key._foreign_key_meta.resolved_references._meta._foreign_key_references  # noqa: E501
+                #                 if c._meta.params.get("target_column") is not None  # noqa: E501
+                #             ][0]
+                #             reference_table = (
+                #                 key._foreign_key_meta.resolved_references
+                #             )
+                #             target_column_query: Any = (
+                #                 reference_table.select()
+                #                 .where(
+                #                     reference_table._meta.primary_key
+                #                     == int(fields[field_name])
+                #                 )
+                #                 .first()
+                #                 .run_sync()
+                #             )
+                #             value = target_column_query[
+                #                 target_column_fk_name._meta.name
+                #             ]
+                #             break
+                # else:
+                #     value = model_dict.get(field_name, ...)
 
-            if value is ...:
-                raise MalformedQuery(f"{field_name} isn't a valid field name.")
-            column: Column = getattr(self.table, field_name)
-
-            # Sometimes a list of values is passed in.
-            values = value if isinstance(value, list) else [value]
-
-            for value in values:
-                operator = params.operators[field_name]
-                if operator in (IsNull, IsNotNull):
-                    query = query.where(
-                        Where(
-                            column=column,
-                            operator=operator,
-                        )
+                if value is ...:
+                    raise MalformedQuery(
+                        f"{field_name} isn't a valid field name."
                     )
-                else:
-                    if isinstance(column, (Varchar, Text)):
-                        match_type = params.match_types[field_name]
-                        if match_type == "exact":
-                            clause = column.__eq__(value)
-                        elif match_type == "starts":
-                            clause = column.ilike(f"{value}%")
-                        elif match_type == "ends":
-                            clause = column.ilike(f"%{value}")
-                        else:
-                            clause = column.ilike(f"%{value}%")
-                        query = query.where(clause)
-                    elif isinstance(column, Array):
-                        query = query.where(column.any(value))
-                    else:
+                column: Column = getattr(self.table, field_name)
+
+                # Sometimes a list of values is passed in.
+                values = value if isinstance(value, list) else [value]
+
+                for value in values:
+                    operator = params.operators[field_name]
+                    if operator in (IsNull, IsNotNull):
                         query = query.where(
                             Where(
                                 column=column,
-                                value=value,
                                 operator=operator,
                             )
                         )
+                    else:
+                        if isinstance(column, (Varchar, Text)):
+                            match_type = params.match_types[field_name]
+                            if match_type == "exact":
+                                clause = column.__eq__(value)
+                            elif match_type == "starts":
+                                clause = column.ilike(f"{value}%")
+                            elif match_type == "ends":
+                                clause = column.ilike(f"%{value}")
+                            else:
+                                clause = column.ilike(f"%{value}%")
+                            query = query.where(clause)
+                        elif isinstance(column, Array):
+                            query = query.where(column.any(value))
+                        else:
+                            query = query.where(
+                                Where(
+                                    column=column,
+                                    value=value,
+                                    operator=operator,
+                                )
+                            )
 
         return query
 

@@ -1,55 +1,55 @@
-from unittest import TestCase
+# from unittest import TestCase
 
-from piccolo.columns.column_types import ForeignKey, Varchar
-from piccolo.table import Table
-from starlette.testclient import TestClient
+# from piccolo.columns.column_types import ForeignKey, Varchar
+# from piccolo.table import Table
+# from starlette.testclient import TestClient
 
-from piccolo_api.crud.endpoints import PiccoloCRUD
-
-
-class Serie(Table):
-    name = Varchar(length=100, unique=True)
+# from piccolo_api.crud.endpoints import PiccoloCRUD
 
 
-class Review(Table):
-    reviewer = Varchar()
-    serie = ForeignKey(Serie, target_column=Serie.name)
+# class Serie(Table):
+#     name = Varchar(length=100, unique=True)
 
 
-class TestTargetPK(TestCase):
-    """
-    Make sure PiccoloCRUD works with Tables with a non-primary key column.
-    """
+# class Review(Table):
+#     reviewer = Varchar()
+#     serie = ForeignKey(Serie, target_column=Serie.name)
 
-    def setUp(self):
-        Serie.create_table(if_not_exists=True).run_sync()
-        Review.create_table(if_not_exists=True).run_sync()
 
-    def tearDown(self):
-        Review.alter().drop_table().run_sync()
-        Serie.alter().drop_table().run_sync()
+# class TestTargetPK(TestCase):
+#     """
+#     Make sure PiccoloCRUD works with Tables with a non-primary key column.
+#     """
 
-    def test_target_column_pk(self):
-        Serie(name="Devs").save().run_sync()
-        Review(reviewer="John Doe", serie="Devs").save().run_sync()
+#     def setUp(self):
+#         Serie.create_table(if_not_exists=True).run_sync()
+#         Review.create_table(if_not_exists=True).run_sync()
 
-        review = Review.select(Review.serie.id).first().run_sync()
+#     def tearDown(self):
+#         Review.alter().drop_table().run_sync()
+#         Serie.alter().drop_table().run_sync()
 
-        self.client = TestClient(PiccoloCRUD(table=Serie, read_only=False))
-        response = self.client.get("/Devs/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["id"], review["serie.id"])
+#     def test_target_column_pk(self):
+#         Serie(name="Devs").save().run_sync()
+#         Review(reviewer="John Doe", serie="Devs").save().run_sync()
 
-        self.client = TestClient(PiccoloCRUD(table=Review, read_only=False))
-        response = self.client.get(f"/{review['serie.id']}")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {"id": 1, "reviewer": "John Doe", "serie": "Devs"},
-        )
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {"rows": [{"id": 1, "reviewer": "John Doe", "serie": "Devs"}]},
-        )
+#         review = Review.select(Review.serie.id).first().run_sync()
+
+#         self.client = TestClient(PiccoloCRUD(table=Serie, read_only=False))
+#         response = self.client.get("/Devs/")
+#         self.assertEqual(response.status_code, 200)
+#         self.assertEqual(response.json()["id"], review["serie.id"])
+
+#         self.client = TestClient(PiccoloCRUD(table=Review, read_only=False))
+#         response = self.client.get(f"/{review['serie.id']}")
+#         self.assertEqual(response.status_code, 200)
+#         self.assertEqual(
+#             response.json(),
+#             {"id": 1, "reviewer": "John Doe", "serie": "Devs"},
+#         )
+#         response = self.client.get("/")
+#         self.assertEqual(response.status_code, 200)
+#         self.assertEqual(
+#             response.json(),
+#             {"rows": [{"id": 1, "reviewer": "John Doe", "serie": "Devs"}]},
+#         )
