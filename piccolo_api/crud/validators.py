@@ -61,6 +61,7 @@ class Validators:
         get_new: list[ValidatorFunction] = [],
         get_schema: list[ValidatorFunction] = [],
         get_count: list[ValidatorFunction] = [],
+        get_m2m_results: list[ValidatorFunction] = [],
         extra_context: dict[str, Any] = {},
     ):
         self.every = every
@@ -77,6 +78,7 @@ class Validators:
         self.get_new = get_new
         self.get_schema = get_schema
         self.get_count = get_count
+        self.get_m2m_results = get_m2m_results
         self.extra_context = extra_context
 
 
