@@ -485,6 +485,7 @@ class TestSchema(TestCase):
                 },
                 "properties": {
                     "name": {
+                        "default": None,
                         "extra": {
                             "choices": None,
                             "help_text": None,
@@ -509,7 +510,6 @@ class TestSchema(TestCase):
                         "title": "Rating",
                     },
                 },
-                "required": ["name"],
                 "title": "MovieIn",
                 "type": "object",
             },
